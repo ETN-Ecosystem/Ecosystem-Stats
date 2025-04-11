@@ -35,7 +35,12 @@ const EcosystemTable: React.FC<EcosystemTableProps> = ({ balances }) => {
                   {`${wallet.address.slice(0, 4)}...${wallet.address.slice(-4)}`}
                 </a>
               </td>
-              <td className="px-3 py-4 text-sm md:text-base">{(parseInt(wallet.balance) / 1000000000).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ETN</td>
+              <td className="px-3 py-4 text-sm md:text-base">
+                {(Number(BigInt(wallet.balance)) / 1e9).toLocaleString(undefined, {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })} ETN
+              </td>
             </tr>
           ))}
         </tbody>
