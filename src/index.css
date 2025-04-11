@@ -1,0 +1,27 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@keyframes priceUp {
+  0% { color: #133A2A; }
+  50% { color: #00ff00; }
+  100% { color: #133A2A; }
+}
+
+@keyframes priceDown {
+  0% { color: #133A2A; }
+  50% { color: #ff0000; }
+  100% { color: #133A2A; }
+}
+
+.animate-priceUp {
+  animation: priceUp 1s ease;
+}
+
+.animate-priceDown {
+  animation: priceDown 1s ease;
+}
+
+html {
+  scroll-behavior: smooth;
+}
