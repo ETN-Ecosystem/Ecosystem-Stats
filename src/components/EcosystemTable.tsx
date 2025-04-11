@@ -1,15 +1,9 @@
 import React from 'react';
-import { ECOSYSTEM_WALLETS } from '../constants/index';
+import { useTokenBalances } from '../hooks/useTokenBalances';
 
-interface EcosystemTableProps {
-  balances: {
-    purpose: string;
-    address: string;
-    balance: string;
-  }[];
-}
+const EcosystemTable: React.FC = () => {
+  const { balances } = useTokenBalances();
 
-const EcosystemTable: React.FC<EcosystemTableProps> = ({ balances }) => {
   return (
     <div className="w-full overflow-x-auto">
       <table className="min-w-full">
