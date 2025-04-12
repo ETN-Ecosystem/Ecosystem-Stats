@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
-import { ECOSYSTEM_WALLETS } from '../constants';
+import { ECOSYSTEM_WALLETS, TOKEN_ADDRESS } from '../constants';
 
 interface WalletBalance {
   purpose: string;
@@ -23,43 +23,40 @@ const fetchWithRetry = async (url: string, retries = 3, baseDelay = 2000) => {
         continue;
       }
       if (error?.response?.status === 404) {
-        return { data: { balances: [] } };
+        return { data: { balance: '0' } };
       }
       throw error;
     }
   }
 };
 
-const ETN_JETTON_ADDRESS = 'EQAz_XrD0hA4cqlprWkpS7TIAhCG4CknAfob1VQm-2mBf5Vl';
-const CACHE_KEY = 'etn_balances_cache';
-const CACHE_EXPIRY_HOURS = 24;
+const fetchBalances = async () => {
+  const balances: WalletBalance[] = [];
 
-const isCacheValid = (timestamp: number) => {
-  const now = Date.now();
-  return now - timestamp < CACHE_EXPIRY_HOURS * 60 * 60 * 1000;
-};
-
-const fetchBalancesSequentially = async () => {
-  const balances = [];
   for (const wallet of ECOSYSTEM_WALLETS) {
     try {
-      await delay(2000); // Delay between requests
-      const response = await fetchWithRetry(`https://tonapi.io/v2/accounts/${wallet.address}/jettons`);
-      const etnJetton = response?.data?.balances?.find(
-        (token: any) => token.jetton?.address === ETN_JETTON_ADDRESS
-      );
+      await delay(1000); // throttle API calls
+      const url = `https://tonapi.io/v2/accounts/${wallet.address}/jettons/${TOKEN_ADDRESS}?currencies=&supported_extensions=custom_payload`;
+      const response = await fetchWithRetry(url);
+      const rawBalance = response?.data?.balance || '0';
+      const readableBalance = (parseFloat(rawBalance) / 1e9).toLocaleString(undefined, {
+        maximumFractionDigits: 2,
+      });
       balances.push({
-        ...wallet,
-        balance: etnJetton?.balance || '0'
+        purpose: wallet.purpose,
+        address: wallet.address,
+        balance: readableBalance,
       });
     } catch (error) {
-      console.error(`Error fetching balance for ${wallet.address}:`, error);
+      console.error(`Error fetching ${wallet.address}:`, error);
       balances.push({
-        ...wallet,
-        balance: '0'
+        purpose: wallet.purpose,
+        address: wallet.address,
+        balance: '0',
       });
     }
   }
+
   return balances;
 };
 
@@ -67,29 +64,11 @@ export const useTokenBalances = () => {
   const [balances, setBalances] = useState<WalletBalance[]>([]);
 
   useEffect(() => {
-    const fetchBalances = async () => {
-      const cached = localStorage.getItem(CACHE_KEY);
-      if (cached) {
-        const parsed = JSON.parse(cached);
-        if (isCacheValid(parsed.timestamp)) {
-          setBalances(parsed.data);
-          return;
-        }
-      }
-
-      try {
-        const updatedBalances = await fetchBalancesSequentially();
-        setBalances(updatedBalances);
-        localStorage.setItem(
-          CACHE_KEY,
-          JSON.stringify({ timestamp: Date.now(), data: updatedBalances })
-        );
-      } catch (error) {
-        console.error('Error fetching balances:', error);
-      }
+    const load = async () => {
+      const data = await fetchBalances();
+      setBalances(data);
     };
-
-    fetchBalances();
+    load();
   }, []);
 
   return { balances };
