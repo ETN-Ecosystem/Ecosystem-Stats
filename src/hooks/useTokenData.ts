@@ -3,13 +3,14 @@ import axios from 'axios';
 import { TOKEN_ADDRESS, STONFI_ADDRESS, SBT_COLLECTIONS } from '../constants';
 import { TokenData, TokenRates, Transaction, SBTItem } from '../types';
 
-const FETCH_COOLDOWN = 15000; // 15 seconds
+const FETCH_COOLDOWN = 30000; // 30 seconds
 const PRICE_CHART_INTERVAL = 7200000; // 2 hours
 const CACHE_KEY = 'priceChartData';
 const CACHE_EXPIRY = 7200000; // 2 hours in milliseconds
-const MAX_RETRIES = 3;
-const INITIAL_RETRY_DELAY = 2000;
-const REQUEST_DELAY = 2000; // Increased to 2 seconds
+const MAX_RETRIES = 5;
+const INITIAL_RETRY_DELAY = 3000;
+const REQUEST_DELAY = 3000;
+const MAX_RETRY_DELAY = 30000;
 
 const getPriceChartFromCache = () => {
   const cached = localStorage.getItem(CACHE_KEY);
@@ -35,38 +36,53 @@ const setPriceChartCache = (data: { labels: string[]; prices: number[] }) => {
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-const retryWithBackoff = async (fn: () => Promise<any>, retries = MAX_RETRIES, delay = INITIAL_RETRY_DELAY) => {
-  try {
-    return await fn();
-  } catch (error: any) {
-    if (retries === 0) {
-      if (error?.response?.status === 404) {
-        return null;
+const calculateRetryDelay = (attempt: number, baseDelay: number) => {
+  const delay = Math.min(
+    baseDelay * Math.pow(2, attempt) + Math.random() * 1000,
+    MAX_RETRY_DELAY
+  );
+  return delay;
+};
+
+const retryWithBackoff = async (fn: () => Promise<any>, retries = MAX_RETRIES, baseDelay = INITIAL_RETRY_DELAY) => {
+  let lastError;
+  
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await fn();
+    } catch (error: any) {
+      lastError = error;
+      
+      if (attempt === retries) {
+        if (error?.response?.status === 404) {
+          return null;
+        }
+        throw error;
       }
+
+      if (error?.response?.status === 429 || error?.code === 'ECONNABORTED' || error?.code === 'ERR_NETWORK') {
+        const delay = calculateRetryDelay(attempt, baseDelay);
+        await sleep(delay);
+        continue;
+      }
+
       throw error;
     }
-    if (error?.response?.status === 429) {
-      await sleep(delay);
-      return retryWithBackoff(fn, retries - 1, delay * 2);
-    }
-    if (error?.response?.status === 404) {
-      return null;
-    }
-    throw error;
   }
 };
 
 const sequentialFetch = async <T>(requests: (() => Promise<T>)[]): Promise<T[]> => {
   const results: T[] = [];
   for (const request of requests) {
-    await sleep(REQUEST_DELAY);
     try {
+      await sleep(REQUEST_DELAY);
       const result = await retryWithBackoff(request);
       if (result !== null) {
         results.push(result);
       }
     } catch (error) {
       console.error('Error in sequential fetch:', error);
+      // Continue with other requests even if one fails
     }
   }
   return results;
@@ -85,17 +101,23 @@ export const useTokenData = () => {
     const fetchPriceChartData = async () => {
       try {
         const endDate = Math.floor(Date.now() / 1000);
-        const startDate = endDate - (30 * 24 * 60 * 60);
-        const pointsCount = 200;
-        const apiUrl = `https://tonapi.io/v2/rates/chart?token=${TOKEN_ADDRESS}&currency=usd&start_date=${startDate}&end_date=${endDate}&points_count=${pointsCount}`;
+        const startDate = endDate - (30 * 24 * 60 * 60); // 30 days ago
+        const apiUrl = `https://tonapi.io/v2/rates/chart?token=${TOKEN_ADDRESS}&currency=usd&start_date=${startDate}&end_date=${endDate}&points_count=200`;
         
         const response = await retryWithBackoff(() => axios.get(apiUrl));
         if (!response) return;
 
-        const prices = response.data.points;
-        const labels = prices.map((point: [number, number]) => new Date(point[0] * 1000).toLocaleDateString());
-        const priceValues = prices.map((point: [number, number]) => point[1]);
-        const newChartData = { labels, prices: priceValues };
+        const points = response.data.points || [];
+        const labels = points.map((point: [number, number]) => {
+          const date = new Date(point[0] * 1000);
+          return date.toLocaleDateString('en-US', {
+            month: 'short',
+            day: 'numeric'
+          });
+        });
+        const prices = points.map((point: [number, number]) => point[1]);
+        
+        const newChartData = { labels, prices };
         setPriceChartData(newChartData);
         setPriceChartCache(newChartData);
       } catch (error) {
@@ -162,6 +184,7 @@ export const useTokenData = () => {
 
         const sbtItemsWithImage = await sequentialFetch(
           initialSbtData.map(item => async () => {
+            if (!item?.address) return null;
             try {
               const itemDetailsResponse = await axios.get(`https://tonapi.io/v2/nfts/items/${item.address}`);
               return {

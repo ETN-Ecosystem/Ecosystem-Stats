@@ -1,9 +1,15 @@
 import React from 'react';
-import { useTokenBalances } from '../hooks/useTokenBalances';
+import { ECOSYSTEM_WALLETS } from '../constants/index';
 
-const EcosystemTable: React.FC = () => {
-  const { balances } = useTokenBalances();
+interface EcosystemTableProps {
+  balances: {
+    purpose: string;
+    address: string;
+    balance: string;
+  }[];
+}
 
+const EcosystemTable: React.FC<EcosystemTableProps> = ({ balances }) => {
   return (
     <div className="w-full overflow-x-auto">
       <table className="min-w-full">
@@ -30,9 +36,9 @@ const EcosystemTable: React.FC = () => {
                 </a>
               </td>
               <td className="px-3 py-4 text-sm md:text-base">
-                {(Number(BigInt(wallet.balance)) / 1e9).toLocaleString(undefined, {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2,
+                {(Number(wallet.balance) / 1000000000).toLocaleString(undefined, { 
+                  minimumFractionDigits: 0,
+                  maximumFractionDigits: 0 
                 })} ETN
               </td>
             </tr>

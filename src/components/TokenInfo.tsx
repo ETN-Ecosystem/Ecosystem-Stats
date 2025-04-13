@@ -14,7 +14,7 @@ const TokenInfo: React.FC<TokenInfoProps> = ({ tokenData }) => {
   }
 
   return (
-    <div className="bg-[#F2C94C]/10 p-6 rounded-lg text-center w-full">
+    <div className="bg-[#F2C94C]/10 p-4 rounded-lg text-center w-full ">
       <div className="flex items-center justify-center gap-4">
         {tokenData.metadata.image && (
           <img 

@@ -8,55 +8,70 @@ interface WalletBalance {
   balance: string;
 }
 
-const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+const MAX_RETRIES = 5;
+const INITIAL_RETRY_DELAY = 3000;
+const REQUEST_DELAY = 3000;
+const MAX_RETRY_DELAY = 30000;
+const FETCH_INTERVAL = 30000;
 
-const fetchWithRetry = async (url: string, retries = 3, baseDelay = 2000) => {
-  for (let i = 0; i < retries; i++) {
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+const calculateRetryDelay = (attempt: number, baseDelay: number) => {
+  const delay = Math.min(
+    baseDelay * Math.pow(2, attempt) + Math.random() * 1000,
+    MAX_RETRY_DELAY
+  );
+  return delay;
+};
+
+const fetchWithRetry = async (url: string, retries = MAX_RETRIES, baseDelay = INITIAL_RETRY_DELAY) => {
+  let lastError;
+  
+  for (let attempt = 0; attempt <= retries; attempt++) {
     try {
       const response = await axios.get(url);
       return response;
     } catch (error: any) {
-      if (error?.response?.status === 429 && i < retries - 1) {
-        const jitter = Math.random() * 1000;
-        const waitTime = baseDelay * Math.pow(2, i) + jitter;
-        await delay(waitTime);
+      lastError = error;
+      
+      if (attempt === retries) {
+        if (error?.response?.status === 404) {
+          return { data: { balance: '0' } };
+        }
+        throw error;
+      }
+
+      if (error?.response?.status === 429 || error?.code === 'ECONNABORTED' || error?.code === 'ERR_NETWORK') {
+        const delay = calculateRetryDelay(attempt, baseDelay);
+        await sleep(delay);
         continue;
       }
-      if (error?.response?.status === 404) {
-        return { data: { balance: '0' } };
-      }
+
       throw error;
     }
   }
 };
 
-const fetchBalances = async () => {
-  const balances: WalletBalance[] = [];
-
+const fetchBalancesSequentially = async () => {
+  const balances = [];
   for (const wallet of ECOSYSTEM_WALLETS) {
     try {
-      await delay(1000); // throttle API calls
-      const url = `https://tonapi.io/v2/accounts/${wallet.address}/jettons/${TOKEN_ADDRESS}?currencies=&supported_extensions=custom_payload`;
-      const response = await fetchWithRetry(url);
-      const rawBalance = response?.data?.balance || '0';
-      const readableBalance = (parseFloat(rawBalance) / 1e9).toLocaleString(undefined, {
-        maximumFractionDigits: 2,
-      });
+      await sleep(REQUEST_DELAY);
+      const response = await fetchWithRetry(
+        `https://tonapi.io/v2/accounts/${wallet.address}/jettons/${TOKEN_ADDRESS}?currencies=&supported_extensions=custom_payload`
+      );
       balances.push({
-        purpose: wallet.purpose,
-        address: wallet.address,
-        balance: readableBalance,
+        ...wallet,
+        balance: response?.data?.balance || '0'
       });
     } catch (error) {
-      console.error(`Error fetching ${wallet.address}:`, error);
+      console.error(`Error fetching balance for ${wallet.address}:`, error);
       balances.push({
-        purpose: wallet.purpose,
-        address: wallet.address,
-        balance: '0',
+        ...wallet,
+        balance: '0'
       });
     }
   }
-
   return balances;
 };
 
@@ -64,11 +79,19 @@ export const useTokenBalances = () => {
   const [balances, setBalances] = useState<WalletBalance[]>([]);
 
   useEffect(() => {
-    const load = async () => {
-      const data = await fetchBalances();
-      setBalances(data);
+    const fetchBalances = async () => {
+      try {
+        const updatedBalances = await fetchBalancesSequentially();
+        setBalances(updatedBalances);
+      } catch (error) {
+        console.error('Error fetching balances:', error);
+      }
     };
-    load();
+
+    fetchBalances();
+    const interval = setInterval(fetchBalances, FETCH_INTERVAL);
+
+    return () => clearInterval(interval);
   }, []);
 
   return { balances };
