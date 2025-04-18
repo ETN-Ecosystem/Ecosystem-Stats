@@ -8,6 +8,7 @@ import { useTokenData } from './hooks/useTokenData';
 import { useTokenBalances } from './hooks/useTokenBalances';
 import CirculatingSupply from './components/CirculatingSupply';
 import PlatformStatus from './components/PlatformStatus';
+import Heartbeat from './components/Heartbeat';
 
 function App() {
   const { tokenData, rates, previousRates, transactions } = useTokenData();
